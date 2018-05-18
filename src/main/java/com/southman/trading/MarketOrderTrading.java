@@ -10,7 +10,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.TimerTask;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -67,12 +66,14 @@ public class MarketOrderTrading extends TimerTask {
 	private double GAP_TRADING_PERCENT = 70.0;
 	private boolean IS_RISK_TASKING = false;
 	private double FEE_PERCENT = 0.05;
-	private double TAKE_EXTRA_PERCENT = 2.0;
-	private double MIN_START_PERCENT = 1.0;
+	private double TAKE_EXTRA_PERCENT = 3.0;
+	private double MIN_START_PERCENT = 2.0;
 	public static int TIME_PERIOD_MILLISECONDS = 500;
 	private final Map<String, Double> MIN_ORDER_VALUES = new HashMap<String, Double>();
 	private int STATUS_LOGGING_CYCLE = 600;
 	private int SAVING_ITEMS_CYCLE = 60;
+	
+	private int ORDER_WAITING_CNT = 5;
 
 	private final BinanceApiClientFactory factory = BinanceApiClientFactory.newInstance(API_KEY, SECRET_KEY);
 	private final BinanceApiRestClient client = factory.newRestClient();
@@ -81,6 +82,7 @@ public class MarketOrderTrading extends TimerTask {
 
 	private Map<String, TradingItems> items = null;
 	private long exeCount = 0;
+	private long logCount = 0;
 	
 
 	public MarketOrderTrading() {
@@ -259,7 +261,12 @@ public class MarketOrderTrading extends TimerTask {
 
 	private void watchTrading(final TradingItems item) {
 		if (item.isWaiting()) {
-			initialSetting(item);
+			final int waitingCnt = item.getWaitingCnt();
+			if (waitingCnt == 0) {
+				initialSetting(item);
+			} else {
+				item.setWaitingCnt(waitingCnt-1);
+			}
 			return;
 		}
 		final double lastOrderPrice = item.getLastOrderPrice();
@@ -345,11 +352,11 @@ public class MarketOrderTrading extends TimerTask {
 	private void sendStatusLogging() {
 		if (exeCount % STATUS_LOGGING_CYCLE == 0) {
 			final int simbolCnt = PAIR_SYMBOLS.length;
-			final Random random = new Random();
-			final int rIndex = random.nextInt(simbolCnt);
-			final String pairSymbol = PAIR_SYMBOLS[rIndex];
+			final int index = (int) (logCount % simbolCnt);
+			final String pairSymbol = PAIR_SYMBOLS[index];
 			final TradingItems item = items.get(pairSymbol);
 			logger.info("EXE CNT:" + exeCount + ",  " + getPriceLogging(item));
+			logCount++;
 		}
 	}
 
@@ -384,7 +391,9 @@ public class MarketOrderTrading extends TimerTask {
 			logger.error(e.getMessage(), e);
 			e.printStackTrace();
 		}
-		initialSetting(item);
+		//initialSetting(item);
+		item.setWaiting(true);
+		item.setWaitingCnt(ORDER_WAITING_CNT);
 	}
 
 	private void orderSelling(final TradingItems item, final double price) {
@@ -421,7 +430,9 @@ public class MarketOrderTrading extends TimerTask {
 			logger.error(e.getMessage(), e);
 			e.printStackTrace();
 		}
-		initialSetting(item);
+		//initialSetting(item);
+		item.setWaiting(true);
+		item.setWaitingCnt(ORDER_WAITING_CNT);
 	}
 
 	private String toOrderQty(final TradingItems item, final double qty) {
@@ -450,7 +461,9 @@ public class MarketOrderTrading extends TimerTask {
 				e.printStackTrace();
 			} finally {
 				try {
-					fw.close();
+					if (fw != null) {
+						fw.close();
+					}
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
@@ -469,7 +482,9 @@ public class MarketOrderTrading extends TimerTask {
 			e.printStackTrace();
 		} finally {
 			try {
-				reader.close();
+				if (reader != null) {
+					reader.close();
+				}
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
